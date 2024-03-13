@@ -42,7 +42,7 @@ fn gray_vec(image: &Image<f32, 3>) -> Image<u8, 1> {
 }
 
 #[cfg(feature = "candle")]
-fn gray_candle(image: Image<f32, 3>) -> Image<u8, 3> {
+fn gray_candle(image: &Image<f32, 3>) -> Image<u8, 1> {
     let image_data = image.data.as_slice().unwrap();
     let shape = (image.image_size().height, image.image_size().width, 3);
 
@@ -57,7 +57,7 @@ fn gray_candle(image: Image<f32, 3>) -> Image<u8, 3> {
     let gray_f32 = image_f32.broadcast_mul(&weight).unwrap();
     let gray_f32 = gray_f32.sum_keepdim(2).unwrap();
     let gray_f32 = (gray_f32 / 255.0).unwrap();
-    let gray_f32 = gray_f32.repeat((1, 1, 3)).unwrap();
+    //let gray_f32 = gray_f32.repeat((1, 1, 3)).unwrap();
     //println!("gray_f32: {:?}", gray_f32.shape());
 
     let gray_u8 = gray_f32.to_dtype(DType::U8).unwrap();
@@ -119,7 +119,7 @@ fn bench_grayscale(c: &mut Criterion) {
         });
         #[cfg(feature = "candle")]
         group.bench_with_input(BenchmarkId::new("candle", &id), &image_f32, |b, i| {
-            b.iter(|| gray_candle(black_box(i.clone())))
+            b.iter(|| gray_candle(black_box(&i.clone())))
         });
     }
     group.finish();

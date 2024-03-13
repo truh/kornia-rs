@@ -17,7 +17,7 @@ fn resize_image_crate(image: Image<u8, 3>, new_size: ImageSize) -> Image<u8, 3> 
     let image_resized = image_crate.resize_exact(
         new_size.width as u32,
         new_size.height as u32,
-        image::imageops::FilterType::Gaussian,
+        image::imageops::FilterType::Nearest,
     );
     let data = image_resized.into_rgb8().into_raw();
     Image::new(new_size, data).unwrap()
@@ -42,7 +42,7 @@ fn bench_resize(c: &mut Criterion) {
                     black_box(i),
                     new_size,
                     ResizeOptions {
-                        interpolation: InterpolationMode::Bilinear,
+                        interpolation: InterpolationMode::NearestNeighbor,
                     },
                 )
             })
