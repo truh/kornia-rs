@@ -23,6 +23,10 @@ candle-core = { version = "0.3.2", optional = true }
 tempfile = "3.9.0"
 rerun = "0.14.1"
 criterion = { version = "0.5.1", features = ["html_reports"] }
+polars = { vesion = "0.38.2", features = ["lazy", "csv"] }
+chrono = "0.4.35"
+clap = { version = "4.5.2", features = ["derive"] }
+tokio = { version = "1.36.0", features = ["full"] }
 
 [features]
 candle = ["candle-core"]
