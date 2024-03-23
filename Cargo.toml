@@ -10,20 +10,24 @@ license-file = "LICENSE"
 
 [dependencies]
 anyhow = "1.0.80"
+clap = { version = "4.5.3", features = ["derive"] }
 num-traits = "0.2.17"
 image = { version = "0.25.0" }
+indicatif = { version = "0.17.8", features = ["rayon"] }
 turbojpeg = {version = "1.0.0"}
 memmap2 = "0.9.4"
 ndarray = { version = "0.15.6", features = ["rayon"] }
+rayon = "1.9.0"
+walkdir = "2.5.0"
 fast_image_resize = "3.0.4"
 # this is experimental and only used for benchmarking, so it's optional
 # consider removing it in the future.
 candle-core = { version = "0.3.2", optional = true }
 
 [dev-dependencies]
-tempfile = "3.9.0"
-rerun = "0.14.1"
 criterion = { version = "0.5.1", features = ["html_reports"] }
+rerun = "0.14.1"
+tempfile = "3.9.0"
 
 [features]
 candle = ["candle-core"]
