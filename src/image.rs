@@ -1,6 +1,55 @@
-//use crate::io;
-use anyhow::Result;
 use num_traits::Float;
+
+#[derive(Debug, thiserror::Error)]
+pub enum ImageError {
+    #[error("Data length ({}) does not match the image size ({})", data_len, size.width * size.height * num_channels)]
+    DataLengthMismatch {
+        data_len: usize,
+        size: ImageSize,
+        num_channels: usize,
+    },
+
+    #[error(transparent)]
+    ShapeError(#[from] ndarray::ShapeError),
+
+    #[error("Channel index ({}) out of bounds ({})", channel, num_channels)]
+    ChannelIndexOutOfBounds { channel: usize, num_channels: usize },
+
+    #[error(
+        "Pixel coordinates ({}, {}) out of bounds ({}, {})",
+        x,
+        y,
+        width,
+        height
+    )]
+    PixelOutOfBounds {
+        x: usize,
+        y: usize,
+        width: usize,
+        height: usize,
+    },
+
+    #[error("{0}")]
+    CastError(String),
+
+    #[error("{0}")]
+    RangeError(String),
+
+    #[error("Empty image")]
+    EmptyImage,
+
+    #[error("Image data is not contiguous")]
+    NotContiguous,
+
+    #[error("{0}")]
+    Any(String),
+}
+
+impl From<anyhow::Error> for ImageError {
+    fn from(err: anyhow::Error) -> Self {
+        ImageError::Any(err.to_string())
+    }
+}
 
 /// Image size in pixels
 ///
@@ -80,14 +129,14 @@ impl<T, const CHANNELS: usize> Image<T, CHANNELS> {
     /// assert_eq!(image.size().height, 20);
     /// assert_eq!(image.num_channels(), 3);
     /// ```
-    pub fn new(size: ImageSize, data: Vec<T>) -> Result<Self> {
+    pub fn new(size: ImageSize, data: Vec<T>) -> anyhow::Result<Self> {
         // check if the data length matches the image size
         if data.len() != size.width * size.height * CHANNELS {
-            return Err(anyhow::anyhow!(
-                "Data length ({}) does not match the image size ({})",
-                data.len(),
-                size.width * size.height * CHANNELS
-            ));
+            return Err(ImageError::DataLengthMismatch {
+                data_len: data.len(),
+                size,
+                num_channels: CHANNELS,
+            })?;
         }
 
         // allocate the image data
@@ -127,7 +176,7 @@ impl<T, const CHANNELS: usize> Image<T, CHANNELS> {
     /// assert_eq!(image.size().height, 20);
     /// assert_eq!(image.num_channels(), 3);
     /// ```
-    pub fn from_size_val(size: ImageSize, val: T) -> Result<Self>
+    pub fn from_size_val(size: ImageSize, val: T) -> std::result::Result<Self, ImageError>
     where
         T: Clone + Default,
     {
@@ -176,7 +225,7 @@ impl<T, const CHANNELS: usize> Image<T, CHANNELS> {
     ///
     /// assert_eq!(image_i32.data.get((1, 0, 2)).unwrap(), &5i32);
     /// ```
-    pub fn cast<U>(self) -> Result<Image<U, CHANNELS>>
+    pub fn cast<U>(self) -> std::result::Result<Image<U, CHANNELS>, ImageError>
     where
         U: Clone + Default + num_traits::NumCast + std::fmt::Debug,
         T: Copy + num_traits::NumCast + std::fmt::Debug,
@@ -221,7 +270,7 @@ impl<T, const CHANNELS: usize> Image<T, CHANNELS> {
     ///
     /// assert_eq!(image_f32.data.get((1, 0, 2)).unwrap(), &1.0f32);
     /// ```
-    pub fn cast_and_scale<U>(self, scale: U) -> Result<Image<U, CHANNELS>>
+    pub fn cast_and_scale<U>(self, scale: U) -> std::result::Result<Image<U, CHANNELS>, ImageError>
     where
         U: Copy
             + Clone
@@ -251,16 +300,15 @@ impl<T, const CHANNELS: usize> Image<T, CHANNELS> {
     /// # Errors
     ///
     /// If the channel index is out of bounds, an error is returned.
-    pub fn channel(&self, channel: usize) -> Result<Image<T, 1>>
+    pub fn channel(&self, channel: usize) -> std::result::Result<Image<T, 1>, ImageError>
     where
         T: Clone,
     {
         if channel >= CHANNELS {
-            return Err(anyhow::anyhow!(
-                "Channel index ({}) out of bounds ({}).",
+            return Err(ImageError::ChannelIndexOutOfBounds {
                 channel,
-                CHANNELS
-            ));
+                num_channels: CHANNELS,
+            });
         }
 
         let channel_data = self.data.slice(ndarray::s![.., .., channel..channel + 1]);
@@ -291,7 +339,7 @@ impl<T, const CHANNELS: usize> Image<T, CHANNELS> {
     /// let channels = image.split_channels().unwrap();
     /// assert_eq!(channels.len(), 2);
     /// ```
-    pub fn split_channels(&self) -> Result<Vec<Image<T, 1>>>
+    pub fn split_channels(&self) -> std::result::Result<Vec<Image<T, 1>>, ImageError>
     where
         T: Clone,
     {
@@ -408,26 +456,30 @@ impl<T, const CHANNELS: usize> Image<T, CHANNELS> {
     }
 
     // NOTE: experimental api
-    pub fn set_pixel(&mut self, x: usize, y: usize, ch: usize, val: T) -> Result<()>
+    pub fn set_pixel(
+        &mut self,
+        x: usize,
+        y: usize,
+        ch: usize,
+        val: T,
+    ) -> std::result::Result<(), ImageError>
     where
         T: Copy,
     {
         if x >= self.width() || y >= self.height() {
-            return Err(anyhow::anyhow!(
-                "Pixel coordinates ({}, {}) out of bounds ({}, {}).",
+            return Err(ImageError::PixelOutOfBounds {
                 x,
                 y,
-                self.width(),
-                self.height()
-            ));
+                width: self.width(),
+                height: self.height(),
+            });
         }
 
         if ch >= CHANNELS {
-            return Err(anyhow::anyhow!(
-                "Channel index ({}) out of bounds ({}).",
-                ch,
-                CHANNELS
-            ));
+            return Err(ImageError::ChannelIndexOutOfBounds {
+                channel: ch,
+                num_channels: CHANNELS,
+            });
         }
 
         self.data[[y, x, ch]] = val;
@@ -436,26 +488,24 @@ impl<T, const CHANNELS: usize> Image<T, CHANNELS> {
     }
 
     // NOTE: experimental api
-    pub fn get_pixel(&self, x: usize, y: usize, ch: usize) -> Result<T>
+    pub fn get_pixel(&self, x: usize, y: usize, ch: usize) -> std::result::Result<T, ImageError>
     where
         T: Copy,
     {
         if x >= self.width() || y >= self.height() {
-            return Err(anyhow::anyhow!(
-                "Pixel coordinates ({}, {}) out of bounds ({}, {}).",
+            return Err(ImageError::PixelOutOfBounds {
                 x,
                 y,
-                self.width(),
-                self.height()
-            ));
+                width: self.width(),
+                height: self.height(),
+            });
         }
 
         if ch >= CHANNELS {
-            return Err(anyhow::anyhow!(
-                "Channel index ({}) out of bounds ({}).",
-                ch,
-                CHANNELS
-            ));
+            return Err(ImageError::ChannelIndexOutOfBounds {
+                channel: ch,
+                num_channels: CHANNELS,
+            });
         }
 
         Ok(self.data[[y, x, ch]])

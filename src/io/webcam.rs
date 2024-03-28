@@ -1,6 +1,38 @@
-use crate::image::{Image, ImageSize};
-use anyhow::Result;
+use crate::image::{Image, ImageError, ImageSize};
 use gst::prelude::*;
+
+#[derive(Debug, thiserror::Error)]
+pub enum GstreamerError {
+    #[error("{0}")]
+    Any(String),
+
+    #[error("{0}")]
+    Pipeline(String),
+
+    #[error(transparent)]
+    StateChangeError(#[from] gst::StateChangeError),
+
+    #[error(transparent)]
+    GlibError(#[from] gst::glib::Error),
+
+    #[error(transparent)]
+    ImageError(#[from] ImageError),
+
+    #[error(transparent)]
+    JoinHandleError(#[from] tokio::task::JoinError),
+}
+
+impl From<anyhow::Error> for GstreamerError {
+    fn from(e: anyhow::Error) -> Self {
+        GstreamerError::Any(e.to_string())
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum StreamerError {
+    #[error("stream has been cancelled")]
+    Cancelled,
+}
 
 /// A builder for creating a WebcamCapture object
 pub struct WebcamCaptureBuilder {
@@ -44,7 +76,7 @@ impl WebcamCaptureBuilder {
     }
 
     /// Create a new [`WebcamCapture`] object.
-    pub fn build(self) -> Result<WebcamCapture> {
+    pub fn build(self) -> Result<WebcamCapture, GstreamerError> {
         WebcamCapture::new(self.camera_id, self.size)
     }
 }
@@ -100,20 +132,20 @@ impl WebcamCapture {
     /// # Returns
     ///
     /// A WebcamCapture object
-    fn new(camera_id: usize, size: Option<ImageSize>) -> Result<Self> {
+    fn new(camera_id: usize, size: Option<ImageSize>) -> Result<Self, GstreamerError> {
         gst::init()?;
 
         // create a pipeline specified by the camera id and size
         let pipeline_str = Self::gst_pipeline_string(camera_id, size);
         let pipeline = gst::parse::launch(&pipeline_str)?
             .downcast::<gst::Pipeline>()
-            .map_err(|_| anyhow::anyhow!("Failed to downcast pipeline"))?;
+            .map_err(|_| GstreamerError::Pipeline("Failed to downcast pipeline".to_string()))?;
 
         let appsink = pipeline
             .by_name("sink")
-            .ok_or_else(|| anyhow::anyhow!("Failed to get sink"))?
+            .ok_or_else(|| GstreamerError::Pipeline("Failed to get sink".to_string()))?
             .dynamic_cast::<gst_app::AppSink>()
-            .map_err(|_| anyhow::anyhow!("Failed to cast to AppSink"))?;
+            .map_err(|_| GstreamerError::Pipeline("Failed to cast to AppSink".to_string()))?;
 
         let (tx, rx) = tokio::sync::mpsc::channel(50);
 
@@ -144,9 +176,9 @@ impl WebcamCapture {
     /// # Arguments
     ///
     /// * `f` - A function that takes an image frame
-    pub async fn run<F>(&mut self, f: F) -> Result<()>
+    pub async fn run<F>(&mut self, f: F) -> Result<(), GstreamerError>
     where
-        F: Fn(Image<u8, 3>) -> Result<()>,
+        F: Fn(Image<u8, 3>) -> Result<(), ImageError>,
     {
         // start the pipeline
         let pipeline = &self.pipeline;
@@ -154,10 +186,9 @@ impl WebcamCapture {
 
         let bus = pipeline
             .bus()
-            .ok_or_else(|| anyhow::anyhow!("Failed to get bus"))?;
+            .ok_or_else(|| GstreamerError::Pipeline("Failed to get bus".to_string()))?;
 
         // start a thread to handle the messages from the bus
-        //let handle = std::thread::spawn(move || {
         let handle = tokio::task::spawn(async move {
             for msg in bus.iter_timed(gst::ClockTime::NONE) {
                 use gst::MessageView;
@@ -186,7 +217,7 @@ impl WebcamCapture {
         Ok(())
     }
 
-    pub async fn close(&mut self) -> Result<()> {
+    pub async fn close(&mut self) -> Result<(), GstreamerError> {
         self.pipeline.send_event(gst::event::Eos::new());
         while let Some(h) = self.handle.pop() {
             h.await?;
@@ -230,21 +261,45 @@ impl WebcamCapture {
     /// # Returns
     ///
     /// An image frame
-    fn extract_image_frame(appsink: &gst_app::AppSink) -> Result<Image<u8, 3>> {
-        let sample = appsink.pull_sample()?;
+    fn extract_image_frame(
+        appsink: &gst_app::AppSink,
+    ) -> std::result::Result<Image<u8, 3>, GstreamerError> {
+        let sample = appsink
+            .pull_sample()
+            .map_err(|e| GstreamerError::Any(format!("Failed to pull sample: {}", e)))?;
         let caps = sample
             .caps()
-            .ok_or_else(|| anyhow::anyhow!("Failed to get caps from sample"))?;
+            .ok_or(GstreamerError::Any("Failed to get caps".to_string()))?;
         let structure = caps
             .structure(0)
-            .ok_or_else(|| anyhow::anyhow!("Failed to get structure"))?;
-        let height = structure.get::<i32>("height")? as usize;
-        let width = structure.get::<i32>("width")? as usize;
-
+            .ok_or(GstreamerError::Any("Failed to get structure".to_string()))?;
+        let height = structure
+            .get::<i32>("height")
+            .map_err(|e| GstreamerError::Any(format!("Failed to get height: {}", e)))?
+            as usize;
+        let width = structure
+            .get::<i32>("width")
+            .map_err(|e| GstreamerError::Any(format!("Failed to get width: {}", e)))?
+            as usize;
         let buffer = sample
             .buffer()
-            .ok_or_else(|| anyhow::anyhow!("Failed to get buffer from sample"))?;
-        let map = buffer.map_readable()?;
-        Image::<u8, 3>::new(ImageSize { width, height }, map.as_slice().to_vec())
+            .ok_or(GstreamerError::Any("Failed to get buffer".to_string()))?;
+
+        let map = buffer
+            .map_readable()
+            .map_err(|e| GstreamerError::Any(format!("Failed to map readable: {}", e)))?;
+        Ok(Image::<u8, 3>::new(
+            ImageSize { width, height },
+            map.as_slice().to_vec(),
+        )?)
+    }
+}
+
+impl Drop for WebcamCapture {
+    fn drop(&mut self) {
+        println!("Dropping WebcamCapture");
+        if let Err(e) = self.pipeline.set_state(gst::State::Null) {
+            eprintln!("Failed to set pipeline state to null: {}", e);
+        }
     }
 }

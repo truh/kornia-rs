@@ -1,6 +1,4 @@
-use anyhow::Result;
-
-use crate::image::Image;
+use crate::image::{Image, ImageError};
 
 /// Compute the pixel intensity histogram of an image.
 ///
@@ -36,10 +34,10 @@ use crate::image::Image;
 /// let histogram = compute_histogram(&image, 3).unwrap();
 /// assert_eq!(histogram, vec![3, 3, 3]);
 /// ```
-pub fn compute_histogram(image: &Image<u8, 1>, num_bins: usize) -> Result<Vec<usize>> {
+pub fn compute_histogram(image: &Image<u8, 1>, num_bins: usize) -> Result<Vec<usize>, ImageError> {
     if num_bins == 0 || num_bins > 256 {
-        return Err(anyhow::anyhow!(
-            "Invalid number of bins. Must be in the range [1, 256]."
+        return Err(ImageError::RangeError(
+            "Invalid number of bins. Must be in the range [1, 256].".to_string(),
         ));
     }
 

@@ -1,5 +1,4 @@
-use crate::image::Image;
-use anyhow::Result;
+use crate::image::{Image, ImageError};
 
 /// Flip the input image horizontally.
 ///
@@ -30,7 +29,7 @@ use anyhow::Result;
 /// ```
 pub fn horizontal_flip<T, const CHANNELS: usize>(
     image: &Image<T, CHANNELS>,
-) -> Result<Image<T, CHANNELS>>
+) -> Result<Image<T, CHANNELS>, ImageError>
 where
     T: Copy,
 {
@@ -82,7 +81,7 @@ where
 /// ```
 pub fn vertical_flip<T, const CHANNELS: usize>(
     image: &Image<T, CHANNELS>,
-) -> Result<Image<T, CHANNELS>>
+) -> Result<Image<T, CHANNELS>, ImageError>
 where
     T: Copy,
 {

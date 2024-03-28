@@ -1,7 +1,6 @@
 use std::usize;
 
-use crate::image::Image;
-use anyhow::Result;
+use crate::image::{Image, ImageError};
 
 /// Normalize an image using the mean and standard deviation.
 ///
@@ -101,14 +100,14 @@ where
 /// ```
 pub fn find_min_max<T: PartialOrd, const CHANNELS: usize>(
     image: &Image<T, CHANNELS>,
-) -> Result<(T, T)>
+) -> Result<(T, T), ImageError>
 where
     T: Copy,
 {
     // get the first element in the image
     let first_element = match image.data.iter().next() {
         Some(x) => x,
-        None => return Err(anyhow::anyhow!("Empty image")),
+        None => return Err(ImageError::EmptyImage),
     };
 
     let mut min = first_element;
@@ -167,7 +166,7 @@ pub fn normalize_min_max<T, const CHANNELS: usize>(
     image: &Image<T, CHANNELS>,
     min: T,
     max: T,
-) -> Result<Image<T, CHANNELS>>
+) -> Result<Image<T, CHANNELS>, ImageError>
 where
     T: num_traits::Float
         + num_traits::FromPrimitive

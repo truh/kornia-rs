@@ -1,7 +1,4 @@
-use anyhow::Result;
-use turbojpeg;
-
-use crate::image::{Image, ImageSize};
+use crate::image::{Image, ImageError, ImageSize};
 
 /// A JPEG decoder using the turbojpeg library.
 pub struct ImageDecoder {
@@ -36,7 +33,7 @@ impl ImageEncoder {
     /// # Panics
     ///
     /// Panics if the compressor cannot be created.
-    pub fn new() -> Result<Self> {
+    pub fn new() -> anyhow::Result<Self> {
         let compressor = turbojpeg::Compressor::new()?;
         Ok(Self { compressor })
     }
@@ -50,11 +47,11 @@ impl ImageEncoder {
     /// # Returns
     ///
     /// The encoded data as `Vec<u8>`.
-    pub fn encode(&mut self, image: &Image<u8, 3>) -> Result<Vec<u8>> {
+    pub fn encode(&mut self, image: &Image<u8, 3>) -> anyhow::Result<Vec<u8>> {
         // get the image data
         let image_data = match image.data.as_slice() {
             Some(d) => d,
-            None => Err(anyhow::anyhow!("Image data is not contiguous"))?,
+            None => Err(ImageError::NotContiguous)?,
         };
 
         // create a turbojpeg image
@@ -75,7 +72,7 @@ impl ImageEncoder {
     /// # Arguments
     ///
     /// * `quality` - The quality to set.
-    pub fn set_quality(&mut self, quality: i32) -> Result<()> {
+    pub fn set_quality(&mut self, quality: i32) -> anyhow::Result<()> {
         Ok(self.compressor.set_quality(quality)?)
     }
 }
@@ -87,7 +84,7 @@ impl ImageDecoder {
     /// # Returns
     ///
     /// A new `ImageDecoder` instance.
-    pub fn new() -> Result<Self> {
+    pub fn new() -> anyhow::Result<Self> {
         let decompressor = turbojpeg::Decompressor::new()?;
         Ok(ImageDecoder { decompressor })
     }
@@ -105,7 +102,7 @@ impl ImageDecoder {
     /// # Panics
     ///
     /// Panics if the header cannot be read.
-    pub fn read_header(&mut self, jpeg_data: &[u8]) -> Result<ImageSize> {
+    pub fn read_header(&mut self, jpeg_data: &[u8]) -> anyhow::Result<ImageSize> {
         // read the JPEG header with image size
         let header = self.decompressor.read_header(jpeg_data)?;
         Ok(ImageSize {
@@ -123,7 +120,7 @@ impl ImageDecoder {
     /// # Returns
     ///
     /// The decoded data as Tensor.
-    pub fn decode(&mut self, jpeg_data: &[u8]) -> Result<Image<u8, 3>> {
+    pub fn decode(&mut self, jpeg_data: &[u8]) -> anyhow::Result<Image<u8, 3>> {
         // get the image size to allocate th data storage
         let image_size: ImageSize = self.read_header(jpeg_data)?;
 
@@ -142,7 +139,7 @@ impl ImageDecoder {
         // decompress the JPEG data
         self.decompressor.decompress(jpeg_data, buf)?;
 
-        Image::new(image_size, pixels)
+        Ok(Image::new(image_size, pixels)?)
     }
 }
 

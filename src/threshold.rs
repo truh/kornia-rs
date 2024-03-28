@@ -1,5 +1,4 @@
-use crate::image::Image;
-use anyhow::Result;
+use crate::image::{Image, ImageError};
 
 /// Apply a binary threshold to an image.
 ///
@@ -31,7 +30,7 @@ pub fn threshold_binary<T, const CHANNELS: usize>(
     image: &Image<T, CHANNELS>,
     threshold: T,
     max_value: T,
-) -> Result<Image<T, CHANNELS>>
+) -> Result<Image<T, CHANNELS>, ImageError>
 where
     T: Copy + Clone + Default + Send + Sync + std::cmp::PartialOrd,
 {
@@ -80,7 +79,7 @@ pub fn threshold_binary_inverse<T, const CHANNELS: usize>(
     image: &Image<T, CHANNELS>,
     threshold: T,
     max_value: T,
-) -> Result<Image<T, CHANNELS>>
+) -> Result<Image<T, CHANNELS>, ImageError>
 where
     T: Copy + Clone + Default + Send + Sync + std::cmp::PartialOrd,
 {
@@ -127,7 +126,7 @@ where
 pub fn threshold_truncate<T, const CHANNELS: usize>(
     image: &Image<T, CHANNELS>,
     threshold: T,
-) -> Result<Image<T, CHANNELS>>
+) -> Result<Image<T, CHANNELS>, ImageError>
 where
     T: Copy + Clone + Default + Send + Sync + std::cmp::PartialOrd,
 {
@@ -170,7 +169,7 @@ where
 pub fn threshold_to_zero<T, const CHANNELS: usize>(
     image: &Image<T, CHANNELS>,
     threshold: T,
-) -> Result<Image<T, CHANNELS>>
+) -> Result<Image<T, CHANNELS>, ImageError>
 where
     T: Copy + Clone + Default + Send + Sync + std::cmp::PartialOrd,
 {
@@ -213,7 +212,7 @@ where
 pub fn threshold_to_zero_inverse<T, const CHANNELS: usize>(
     image: &Image<T, CHANNELS>,
     threshold: T,
-) -> Result<Image<T, CHANNELS>>
+) -> Result<Image<T, CHANNELS>, ImageError>
 where
     T: Copy + Clone + Default + Send + Sync + std::cmp::PartialOrd,
 {

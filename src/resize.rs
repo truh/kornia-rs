@@ -1,8 +1,17 @@
-use crate::image::{Image, ImageSize};
-use anyhow::Result;
+use crate::image::{Image, ImageError, ImageSize};
 use fast_image_resize as fr;
 use ndarray::{stack, Array2, Array3};
 use std::num::NonZeroU32;
+
+#[derive(Debug, thiserror::Error)]
+pub enum ImageResizeError {
+    #[error(transparent)]
+    ImageError(#[from] ImageError),
+    #[error(transparent)]
+    ImageBufferError(#[from] fr::ImageBufferError),
+    #[error(transparent)]
+    DifferentTypesOfPixelsError(#[from] fr::DifferentTypesOfPixelsError),
+}
 
 /// Create a meshgrid of x and y coordinates
 ///
@@ -160,7 +169,7 @@ pub fn resize_native<const CHANNELS: usize>(
     image: &Image<f32, CHANNELS>,
     new_size: ImageSize,
     interpolation: InterpolationMode,
-) -> Result<Image<f32, CHANNELS>> {
+) -> Result<Image<f32, CHANNELS>, ImageError> {
     // create the output image
     let mut output = Image::from_size_val(new_size, 0.0)?;
 
@@ -249,20 +258,32 @@ pub fn resize_fast(
     image: &Image<u8, 3>,
     new_size: ImageSize,
     interpolation: InterpolationMode,
-) -> Result<Image<u8, 3>> {
-    let src_width = NonZeroU32::new(image.width() as u32).unwrap();
-    let src_height = NonZeroU32::new(image.height() as u32).unwrap();
+) -> anyhow::Result<Image<u8, 3>> {
+    let src_width = NonZeroU32::new(image.width() as u32).ok_or(ImageError::CastError(
+        "Failed to convert image width to NonZeroU32".to_string(),
+    ))?;
+    let src_height = NonZeroU32::new(image.height() as u32).ok_or(ImageError::CastError(
+        "Failed to convert image height to NonZeroU32".to_string(),
+    ))?;
+
+    let image_data_slice = image.data.as_slice().ok_or(ImageError::CastError(
+        "Failed to convert image data to slice".to_string(),
+    ))?;
 
     // TODO: pass as slice
     let src_image = fr::Image::from_vec_u8(
         src_width,
         src_height,
-        image.data.as_slice().unwrap().to_vec(),
+        image_data_slice.to_vec(),
         fr::PixelType::U8x3,
     )?;
 
-    let dst_width = NonZeroU32::new(new_size.width as u32).unwrap();
-    let dst_height = NonZeroU32::new(new_size.height as u32).unwrap();
+    let dst_width = NonZeroU32::new(new_size.width as u32).ok_or(ImageError::CastError(
+        "Failed to convert new image width to NonZeroU32".to_string(),
+    ))?;
+    let dst_height = NonZeroU32::new(new_size.height as u32).ok_or(ImageError::CastError(
+        "Failed to convert new image height to NonZeroU32".to_string(),
+    ))?;
 
     let mut dst_image = fr::Image::new(dst_width, dst_height, src_image.pixel_type());
     let mut dst_view = dst_image.view_mut();
@@ -278,7 +299,7 @@ pub fn resize_fast(
     resizer.resize(&src_image.view(), &mut dst_view)?;
 
     // TODO: create a new image from the buffer directly from a slice
-    Image::new(new_size, dst_image.buffer().to_vec())
+    Ok(Image::new(new_size, dst_image.buffer().to_vec())?)
 }
 
 #[cfg(test)]

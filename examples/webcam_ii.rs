@@ -4,7 +4,10 @@ use std::sync::{Arc, Mutex};
 use tokio_util::sync::CancellationToken;
 
 use kornia_rs::io::fps_counter::FpsCounter;
-use kornia_rs::{image::ImageSize, io::webcam::WebcamCaptureBuilder};
+use kornia_rs::{
+    image::ImageSize,
+    io::webcam::{StreamerError, WebcamCaptureBuilder},
+};
 
 #[derive(Parser)]
 struct Args {
@@ -13,12 +16,6 @@ struct Args {
 
     #[arg(short, long)]
     duration: Option<u64>,
-}
-
-#[derive(thiserror::Error, Debug)]
-pub enum CancelledError {
-    #[error("Cancelled")]
-    Cancelled,
 }
 
 #[tokio::main]
@@ -79,7 +76,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             _ = child_token.cancelled() => {
                 println!("Received cancel signal. Closing webcam.");
                 webcam.close().await.expect("Failed to close webcam");
-                Err(CancelledError::Cancelled)
+                Err(StreamerError::Cancelled)
             }
         }
     });

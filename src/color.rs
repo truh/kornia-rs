@@ -1,5 +1,4 @@
-use crate::image::Image;
-use anyhow::Result;
+use crate::image::{Image, ImageError};
 
 /// Define the RGB weights for the grayscale conversion.
 const RW: f64 = 0.299;
@@ -38,15 +37,15 @@ const BW: f64 = 0.114;
 /// assert_eq!(gray.size().width, 4);
 /// assert_eq!(gray.size().height, 5);
 /// ```
-pub fn gray_from_rgb<T>(image: &Image<T, 3>) -> Result<Image<T, 1>>
+pub fn gray_from_rgb<T>(image: &Image<T, 3>) -> Result<Image<T, 1>, ImageError>
 where
     T: Default + Copy + Clone + Send + Sync + num_traits::Float,
 {
     assert_eq!(image.num_channels(), 3);
 
-    let rw = T::from(RW).ok_or(anyhow::anyhow!("Failed to convert RW"))?;
-    let gw = T::from(GW).ok_or(anyhow::anyhow!("Failed to convert GW"))?;
-    let bw = T::from(BW).ok_or(anyhow::anyhow!("Failed to convert BW"))?;
+    let rw = T::from(RW).ok_or(ImageError::CastError("Failed to convert RW".to_string()))?;
+    let gw = T::from(GW).ok_or(ImageError::CastError("Failed to convert GW".to_string()))?;
+    let bw = T::from(BW).ok_or(ImageError::CastError("Failed to convert BW".to_string()))?;
 
     let mut output = Image::<T, 1>::from_size_val(image.size(), T::default())?;
 

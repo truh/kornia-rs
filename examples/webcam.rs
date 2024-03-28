@@ -1,4 +1,3 @@
-use anyhow::Result;
 use clap::Parser;
 use std::sync::{Arc, Mutex};
 
@@ -16,7 +15,6 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    //async fn main() -> Result<()> {
     let args = Args::parse();
 
     // start the recording stream
