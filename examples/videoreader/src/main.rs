@@ -3,7 +3,6 @@ use std::{
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
-use tokio::net::unix::pipe;
 use tokio_util::sync::CancellationToken;
 
 use kornia_rs::io::video::{self, VideoReader, VideoWriter};
@@ -53,7 +52,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     //    })
     //    .await?;
 
-    let video_reader = VideoReader::new(&args.video_file)?;
+    let mut video_reader = VideoReader::new(&args.video_file)?;
     let mut video_writer = VideoWriter::new(Path::new(&"output.mp4".to_string()), 30.0, 128, 128)?;
 
     video_reader.start()?;
@@ -73,7 +72,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("Image: #{} {}", counter, img.size());
         counter += 1;
 
-        video_writer.write(&img_resize)?;
+        video_writer.write(img_resize)?;
         rec.log("image", &rerun::Image::try_from(img.data)?)?;
     }
 

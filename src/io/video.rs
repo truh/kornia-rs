@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{path::Path, sync::Arc};
 
 use crate::image::{Image, ImageSize};
 use anyhow::Result;
@@ -38,6 +38,7 @@ fn extract_image_frame(appsink: &gst_app::AppSink) -> Result<Option<Image<u8, 3>
 pub struct VideoReader {
     pipeline: gst::Pipeline,
     appsink: gst_app::AppSink,
+    handle: Option<std::thread::JoinHandle<()>>,
 }
 
 impl VideoReader {
@@ -59,16 +60,41 @@ impl VideoReader {
             .dynamic_cast::<gst_app::AppSink>()
             .map_err(|_| anyhow::anyhow!("Failed to cast to AppSink"))?;
 
-        Ok(Self { pipeline, appsink })
+        Ok(Self {
+            pipeline,
+            appsink,
+            handle: None,
+        })
     }
 
-    pub fn start(&self) -> Result<()> {
+    pub fn start(&mut self) -> Result<()> {
         self.pipeline.set_state(gst::State::Playing)?;
+        //let pipeline = self.pipeline.clone();
+
+        let bus = self.pipeline.bus().expect("Pipeline has no bus");
+        let handle = std::thread::spawn(move || {
+            for msg in bus.iter_timed(gst::ClockTime::NONE) {
+                match msg.view() {
+                    gst::MessageView::Eos(..) => break,
+                    gst::MessageView::Error(err) => {
+                        //pipeline.set_state(gst::State::Null).unwrap();
+                        break;
+                    }
+                    _ => (),
+                }
+            }
+        });
+        self.handle = Some(handle);
         Ok(())
     }
 
-    pub fn stop(&self) -> Result<()> {
+    pub fn stop(&mut self) -> Result<()> {
         self.pipeline.set_state(gst::State::Null)?;
+        self.handle
+            .take()
+            .expect("Failed to get handle")
+            .join()
+            .expect("Failed to join");
         Ok(())
     }
 
@@ -86,10 +112,8 @@ impl VideoReader {
 pub struct VideoWriter {
     pipeline: gst::Pipeline,
     appsrc: gst_app::AppSrc,
-    counter: u32,
+    counter: u64,
     fps: f32,
-    gst_caps: gst::Caps,
-    handle: Option<std::thread::JoinHandle<()>>,
 }
 
 impl VideoWriter {
@@ -97,7 +121,7 @@ impl VideoWriter {
         gst::init()?;
 
         let pipeline_str = format!(
-            "appsrc name=src caps=video/x-raw,format=RGB,width={width},height={height},framerate={fps}/1 !
+            "appsrc name=src do-timestamp=true caps=video/x-raw,format=RGB,width={width},height={height},framerate={fps}/1 !
             x264enc ! mp4mux ! filesink location={} ",
             file_path.to_str().unwrap(),
         );
@@ -112,79 +136,66 @@ impl VideoWriter {
             .dynamic_cast::<gst_app::AppSrc>()
             .map_err(|_| anyhow::anyhow!("Failed to cast to AppSrc"))?;
 
-        appsrc.set_property("format", gst::Format::Time);
-        //appsrc.set_property("block", &true);
-        appsrc.set_property("is-live", &true);
+        let gst_caps = gst::Caps::builder("video/x-raw")
+            .field("format", &"RGB")
+            .field("width", width as u32)
+            .field("height", height as u32)
+            .field("framerate", &gst::Fraction::new(fps as i32, 1))
+            .build();
 
-        let gst_caps = gst::Caps::new_empty_simple("timestamp");
+        appsrc.set_caps(Some(&gst_caps));
 
         Ok(Self {
             pipeline,
             appsrc,
             counter: 0,
-            fps: fps,
-            gst_caps: gst_caps,
-            handle: None,
+            fps,
         })
     }
 
     pub fn start(&mut self) -> Result<()> {
         self.pipeline.set_state(gst::State::Playing)?;
-        let bus = self.pipeline.bus().unwrap();
+        let bus = self.pipeline.bus().expect("Pipeline has no bus");
         let handle = std::thread::spawn(move || {
             for msg in bus.iter_timed(gst::ClockTime::NONE) {
                 match msg.view() {
-                    gst::MessageView::Eos(..) => {
-                        break;
-                    }
+                    gst::MessageView::Eos(..) => break,
                     gst::MessageView::Error(err) => {
+                        //pipeline.set_state(gst::State::Null).unwrap();
                         break;
                     }
                     _ => (),
                 }
             }
         });
-        self.handle = Some(handle);
         Ok(())
     }
 
     pub fn stop(&mut self) -> Result<()> {
         self.appsrc.end_of_stream()?;
         self.pipeline.set_state(gst::State::Null)?;
-        self.handle.take().unwrap().join().unwrap();
         Ok(())
     }
 
-    pub fn write(&mut self, img: &Image<u8, 3>) -> Result<()> {
-        //let mut buffer = gst::Buffer::with_size(img.data.len())?;
-        //buffer
-        //    .get_mut()
-        //    .unwrap()
-        //    .map_writable()?
-        //    .as_mut_slice()
-        //    .copy_from_slice(&img.data.as_slice().unwrap());
-        let mut buffer =
-            gst::Buffer::from_mut_slice(img.data.as_slice().expect("Failed to get data").to_vec());
+    pub fn write(&mut self, img: Image<u8, 3>) -> Result<()> {
+        let mut buffer = gst::Buffer::with_size(img.data.len())?;
+        {
+            let buffer_ref = buffer.get_mut().expect("Failed to get buffer");
+            let pts = gst::ClockTime::from_nseconds(self.counter * 1_000_000_000 / self.fps as u64);
+            buffer_ref.set_pts(pts);
 
-        let time =
-            gst::ClockTime::from_nseconds(self.counter as u64 * 1_000_000_000 / self.fps as u64);
-
-        //buffer
-        //    .get_mut()
-        //    .unwrap()
-        //    .set_pts(gst::ClockTime::from_nseconds(
-        //        self.counter as u64 * 1_000_000_000 / self.fps as u64,
-        //    ));
-        let _ = gst::meta::ReferenceTimestampMeta::add(
-            buffer.get_mut().unwrap(),
-            &self.gst_caps.clone(),
-            time,
-            time,
-        );
+            let mut map = buffer_ref.map_writable()?;
+            map.as_mut_slice()
+                .copy_from_slice(&img.data.as_slice().expect("Failed to get data"));
+        }
 
         self.counter += 1;
 
-        self.appsrc.push_buffer(buffer)?;
+        if let Err(err) = self.appsrc.push_buffer(buffer) {
+            println!("Error pushing buffer: {}", err);
+            return Err(err.into());
+        }
+        println!("Pushed buffer: {}", self.counter);
 
         Ok(())
     }
